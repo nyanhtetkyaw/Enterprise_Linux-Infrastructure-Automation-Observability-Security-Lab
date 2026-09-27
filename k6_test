@@ -1,0 +1,1 @@
+sudo podman exec k6 k6 run --vus 1 --duration 5s /scripts/test.js

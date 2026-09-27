@@ -1,0 +1,1 @@
+sudo podman run --rm -v /home/ansible/terraform-local/ansible/files/loki/loki-config.yml:/etc/loki/loki-config.yml:ro docker.io/grafana/loki:latest -config.file=/etc/loki/loki-config.yml

@@ -1,0 +1,208 @@
+---
+- name: Linux Host Compliance Audit
+  hosts: localhost
+  become: true
+  gather_facts: true
+  ignore_errors: true
+
+  tasks:
+
+
+    # SYSTEM INFORMATION
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Display host information
+      ansible.builtin.debug:
+        msg:
+          - "Hostname: {{ ansible_hostname }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "Architecture: {{ ansible_architecture }}"
+
+
+
+    # SELINUX
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check SELinux status
+      ansible.builtin.command:
+        cmd: getenforce
+      register: selinux_status
+      changed_when: false
+
+    - name: Verify SELinux is enforcing
+      ansible.builtin.assert:
+        that:
+          - selinux_status.stdout == "Enforcing"
+        fail_msg: >
+          COMPLIANCE FAILED:
+          SELinux is {{ selinux_status.stdout }}
+        success_msg: >
+          COMPLIANCE PASS:
+          SELinux is Enforcing
+
+
+
+    # FIREWALL
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check firewalld status
+      ansible.builtin.systemd:
+        name: firewalld
+      register: firewalld_status
+      changed_when: false
+
+    - name: Verify firewalld is running
+      ansible.builtin.assert:
+        that:
+          - firewalld_status.status.ActiveState == "active"
+        fail_msg: "COMPLIANCE FAILED: firewalld is not running"
+        success_msg: "COMPLIANCE PASS: firewalld is running"
+
+
+
+    # SSH
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check SSH root login configuration
+      ansible.builtin.command:
+        cmd: sshd -T
+      register: sshd_config
+      changed_when: false
+
+    - name: Verify root SSH login is disabled
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in sshd_config.stdout"
+        fail_msg: >
+          COMPLIANCE FAILED:
+          SSH root login is not disabled
+        success_msg: >
+          COMPLIANCE PASS:
+          SSH root login is disabled
+
+
+
+    # SSH PASSWORD AUTHENTICATION
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Verify SSH password authentication
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_config.stdout"
+        fail_msg: >
+          COMPLIANCE FAILED:
+          SSH password authentication is enabled
+        success_msg: >
+          COMPLIANCE PASS:
+          SSH password authentication is disabled
+
+
+
+    # NTP / TIME SYNCHRONIZATION
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check chronyd
+      ansible.builtin.systemd:
+        name: chronyd
+      register: chronyd_status
+      changed_when: false
+
+    - name: Verify chronyd is running
+      ansible.builtin.assert:
+        that:
+          - chronyd_status.status.ActiveState == "active"
+        fail_msg: "COMPLIANCE FAILED: chronyd is not running"
+        success_msg: "COMPLIANCE PASS: chronyd is running"
+
+
+
+    # AUDITD
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check auditd
+      ansible.builtin.systemd:
+        name: auditd
+      register: auditd_status
+      changed_when: false
+
+    - name: Verify auditd is running
+      ansible.builtin.assert:
+        that:
+          - auditd_status.status.ActiveState == "active"
+        fail_msg: "COMPLIANCE FAILED: auditd is not running"
+        success_msg: "COMPLIANCE PASS: auditd is running"
+
+
+  
+    # UNATTENDED / AUTOMATIC SECURITY UPDATES
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check dnf-automatic package
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Report dnf-automatic
+      ansible.builtin.debug:
+        msg: >-
+          dnf-automatic is installed:
+          {{ 'yes' if 'dnf-automatic' in ansible_facts.packages else 'no' }}
+
+
+
+    # DISK USAGE
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check root filesystem
+      ansible.builtin.shell:
+        cmd: df -P / | awk 'NR==2 {print $5}' | tr -d '%'
+      register: root_disk_usage
+      changed_when: false
+
+    - name: Verify root filesystem usage
+      ansible.builtin.assert:
+        that:
+          - root_disk_usage.stdout | int < 90
+        fail_msg: >
+          COMPLIANCE FAILED:
+          Root filesystem usage is {{ root_disk_usage.stdout }}%
+        success_msg: >
+          COMPLIANCE PASS:
+          Root filesystem usage is {{ root_disk_usage.stdout }}%
+
+
+
+    # WORLD-WRITABLE FILES
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Find world writable files
+      ansible.builtin.shell:
+        cmd: find /etc /usr/local -xdev -type f -perm -0002 2>/dev/null
+      register: world_writable
+      changed_when: false
+
+    - name: Check world writable files
+      ansible.builtin.assert:
+        that:
+          - world_writable.stdout == ""
+        fail_msg: >
+          COMPLIANCE FAILED:
+          World-writable files were found.
+        success_msg: >
+          COMPLIANCE PASS:
+          No world-writable files found in /etc and /usr/local
+
+
+
+    # FINAL HOST RESULT
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Host compliance completed
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "LINUX HOST COMPLIANCE AUDIT COMPLETED"
+          - "=========================================="
+          - "Hostname: {{ ansible_hostname }}"
+          - "SELinux: {{ selinux_status.stdout }}"
+          - "Kernel: {{ ansible_kernel }}"

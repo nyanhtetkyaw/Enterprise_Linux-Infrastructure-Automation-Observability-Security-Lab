@@ -1,0 +1,4 @@
+sudo podman ps --format '{{.Names}}' | while read c; do
+  echo "=== $c ==="
+  sudo podman inspect "$c" --format '{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}'
+done

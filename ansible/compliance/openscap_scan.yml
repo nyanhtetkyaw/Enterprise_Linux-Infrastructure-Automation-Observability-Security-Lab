@@ -1,0 +1,70 @@
+---
+- name: OpenSCAP RHEL 9 Security Compliance Scan
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars:
+    scap_content: /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml
+    scap_profile: xccdf_org.ssgproject.content_profile_cis_server_l1
+    scap_results: /tmp/openscap-results.xml
+    scap_report: /tmp/openscap-report.html
+
+  tasks:
+
+    - name: Verify OpenSCAP is installed
+      ansible.builtin.command:
+        cmd: oscap --version
+      register: oscap_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display OpenSCAP version
+      ansible.builtin.debug:
+        msg: "{{ oscap_version.stdout | default('OpenSCAP is not installed') }}"
+
+    - name: Verify SCAP Security Guide content exists
+      ansible.builtin.stat:
+        path: "{{ scap_content }}"
+      register: scap_content_file
+
+    - name: Stop if SCAP content is missing
+      ansible.builtin.fail:
+        msg: "OpenSCAP content not found: {{ scap_content }}"
+      when: not scap_content_file.stat.exists
+
+    - name: Run OpenSCAP CIS Level 1 Server scan
+      ansible.builtin.command:
+        cmd: "oscap xccdf eval --profile {{ scap_profile }} --results {{ scap_results }} --report {{ scap_report }} {{ scap_content }}"
+      register: openscap_result
+      changed_when: false
+      failed_when: false
+
+    - name: Display OpenSCAP scan status
+      ansible.builtin.debug:
+        msg:
+          - "OpenSCAP scan completed"
+          - "Return code: {{ openscap_result.rc }}"
+          - "Results XML: {{ scap_results }}"
+          - "HTML report: {{ scap_report }}"
+
+    - name: Check OpenSCAP results file
+      ansible.builtin.stat:
+        path: "{{ scap_results }}"
+      register: results_file
+
+    - name: Check OpenSCAP HTML report
+      ansible.builtin.stat:
+        path: "{{ scap_report }}"
+      register: report_file
+
+    - name: Display generated report information
+      ansible.builtin.debug:
+        msg:
+          - "XML results created: {{ results_file.stat.exists }}"
+          - "HTML report created: {{ report_file.stat.exists }}"
+
+    - name: Display OpenSCAP command output
+      ansible.builtin.debug:
+        var: openscap_result.stdout_lines
+      when: openscap_result.stdout_lines | length > 0

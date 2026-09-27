@@ -1,0 +1,9 @@
+---
+- name: Linux Host Compliance Audit
+  import_playbook: host_compliance.yml
+
+- name: Podman Container Compliance Audit
+  import_playbook: container_compliance.yml
+
+- name: OpenSCAP Security Scan
+  import_playbook: openscap_scan.yml

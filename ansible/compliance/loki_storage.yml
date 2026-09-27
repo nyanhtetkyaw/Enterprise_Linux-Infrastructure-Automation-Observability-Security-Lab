@@ -1,0 +1,21 @@
+---
+- name: Prepare Loki storage
+  hosts: local
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Create Loki data directory
+      ansible.builtin.file:
+        path: /home/ansible/terraform-local/ansible/files/loki/data
+        state: directory
+        owner: "10001"
+        group: "10001"
+        mode: "0755"
+
+    - name: Apply SELinux container file context
+      ansible.builtin.command:
+        cmd: >
+          chcon -Rt container_file_t
+          /home/ansible/terraform-local/ansible/files/loki/data
+      changed_when: false

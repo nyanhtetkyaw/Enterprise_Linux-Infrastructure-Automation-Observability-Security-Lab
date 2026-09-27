@@ -1,0 +1,485 @@
+---
+- name: Podman Container Compliance Audit
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars:
+
+    expected_containers:
+      - httpd-app-1
+      - httpd-app-2
+      - haproxy-lb
+      - caddy-edge
+      - prometheus
+      - grafana
+      - cadvisor
+      - k6
+      - loki
+      - alloy
+
+  tasks:
+
+  
+    # PODMAN
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Podman version
+      ansible.builtin.command:
+        cmd: podman --version
+      register: podman_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display Podman version
+      ansible.builtin.debug:
+        msg: "Podman: {{ podman_version.stdout }}"
+
+
+    
+    # CONTAINER EXISTENCE
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check expected containers exist
+      ansible.builtin.command:
+        cmd: "podman container exists {{ item }}"
+      register: container_exists
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report container existence
+      ansible.builtin.debug:
+        msg: >-
+          {% if item.rc == 0 %}
+          COMPLIANCE PASS: {{ item.item }} exists
+          {% else %}
+          COMPLIANCE FAIL: {{ item.item }} does not exist
+          {% endif %}
+      loop: "{{ container_exists.results }}"
+
+
+    
+    # CONTAINER RUNNING STATE
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check container running state
+      ansible.builtin.command:
+        cmd: >
+          podman inspect {{ item }}
+          --format "{{ '{{' }}.State.Running{{ '}}' }}"
+      register: container_running
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report container running state
+      ansible.builtin.debug:
+        msg: >-
+          {% if item.stdout == "true" %}
+          COMPLIANCE PASS: {{ item.item }} is running
+          {% else %}
+          COMPLIANCE FAIL: {{ item.item }} is not running
+          {% endif %}
+      loop: "{{ container_running.results }}"
+
+
+  
+    # RESTART POLICY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check container restart policies
+      ansible.builtin.command:
+        cmd: >
+          podman inspect {{ item }}
+          --format "{{ '{{' }}.HostConfig.RestartPolicy.Name{{ '}}' }}"
+      register: restart_policies
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report container restart policies
+      ansible.builtin.debug:
+        msg: >-
+          {% if item.stdout in ["", "no"] %}
+          COMPLIANCE PASS: {{ item.item }} has no automatic restart
+          {% else %}
+          COMPLIANCE INFO: {{ item.item }} restart policy={{ item.stdout }}
+          {% endif %}
+      loop: "{{ restart_policies.results }}"
+
+
+    
+    # PRIVILEGED CONTAINERS
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check privileged mode
+      ansible.builtin.command:
+        cmd: >
+          podman inspect {{ item }}
+          --format "{{ '{{' }}.HostConfig.Privileged{{ '}}' }}"
+      register: privileged_containers
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report privileged containers
+      ansible.builtin.debug:
+        msg: >-
+          {% if item.stdout == "true" %}
+          COMPLIANCE INFO: {{ item.item }} privileged=true
+          {% else %}
+          COMPLIANCE PASS: {{ item.item }} privileged=false
+          {% endif %}
+      loop: "{{ privileged_containers.results }}"
+
+
+
+    # CONTAINER USER
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check container users
+      ansible.builtin.command:
+        cmd: >
+          podman inspect {{ item }}
+          --format "{{ '{{' }}.Config.User{{ '}}' }}"
+      register: container_users
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report container users
+      ansible.builtin.debug:
+        msg: "{{ item.item }} container user={{ item.stdout | default('default') }}"
+      loop: "{{ container_users.results }}"
+
+
+   
+    # NETWORK
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check container network membership
+      ansible.builtin.command:
+        cmd: >
+          podman inspect {{ item }}
+          --format "{{ '{{range $k, $v := .NetworkSettings.Networks}}{{ $k }} {{end}}' }}"
+      register: container_networks
+      changed_when: false
+      failed_when: false
+      loop: "{{ expected_containers }}"
+
+    - name: Report container networks
+      ansible.builtin.debug:
+        msg: "{{ item.item }} networks={{ item.stdout }}"
+      loop: "{{ container_networks.results }}"
+
+
+  
+    # HTTPD
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check HTTPD application 1
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8081
+      register: httpd1_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check HTTPD application 2
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8082
+      register: httpd2_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report HTTPD application checks
+      ansible.builtin.debug:
+        msg:
+          - >-
+            HTTPD-1:
+            {% if httpd1_check.rc == 0 %}PASS{% else %}FAIL{% endif %}
+          - >-
+            HTTPD-2:
+            {% if httpd2_check.rc == 0 %}PASS{% else %}FAIL{% endif %}
+
+
+  
+    # HAPROXY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check HAProxy HTTP endpoint
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8080
+      register: haproxy_http_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check HAProxy statistics endpoint
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8404/stats
+      register: haproxy_stats_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report HAProxy checks
+      ansible.builtin.debug:
+        msg:
+          - >-
+            HAProxy HTTP:
+            {% if haproxy_http_check.rc == 0 %}PASS{% else %}FAIL{% endif %}
+          - >-
+            HAProxy Stats:
+            {% if haproxy_stats_check.rc == 0 %}PASS{% else %}FAIL{% endif %}
+
+
+   
+    # CADDY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Caddy HTTP endpoint
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8880
+      register: caddy_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report Caddy health
+      ansible.builtin.debug:
+        msg: >-
+          {% if caddy_check.rc == 0 %}
+          COMPLIANCE PASS: Caddy HTTP endpoint is healthy
+          {% else %}
+          COMPLIANCE FAIL: Caddy HTTP endpoint is unavailable
+          {% endif %}
+
+
+  
+    # PROMETHEUS
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Prometheus readiness
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:9090/-/ready
+      register: prometheus_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report Prometheus health
+      ansible.builtin.debug:
+        msg: >-
+          {% if prometheus_check.rc == 0 %}
+          COMPLIANCE PASS: Prometheus is ready
+          {% else %}
+          COMPLIANCE FAIL: Prometheus is not ready
+          {% endif %}
+
+
+  
+    # GRAFANA
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Grafana API
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:3000/api/health
+      register: grafana_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report Grafana health
+      ansible.builtin.debug:
+        msg: >-
+          {% if grafana_check.rc == 0 %}
+          COMPLIANCE PASS: Grafana API is healthy
+          {% else %}
+          COMPLIANCE FAIL: Grafana API is unavailable
+          {% endif %}
+
+
+   
+    # CADVISOR
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check cAdvisor metrics
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:8085/metrics
+      register: cadvisor_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report cAdvisor health
+      ansible.builtin.debug:
+        msg: >-
+          {% if cadvisor_check.rc == 0 %}
+          COMPLIANCE PASS: cAdvisor metrics endpoint is available
+          {% else %}
+          COMPLIANCE FAIL: cAdvisor metrics endpoint unavailable
+          {% endif %}
+
+
+  
+    # K6
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check k6 version
+      ansible.builtin.command:
+        cmd: podman exec k6 k6 version
+      register: k6_version
+      changed_when: false
+      failed_when: false
+
+    - name: Report k6 version
+      ansible.builtin.debug:
+        msg: >-
+          {% if k6_version.rc == 0 %}
+          COMPLIANCE PASS: k6 is available - {{ k6_version.stdout }}
+          {% else %}
+          COMPLIANCE FAIL: k6 is unavailable
+          {% endif %}
+
+
+    - name: Check k6 test directory
+      ansible.builtin.command:
+        cmd: podman exec k6 ls -la /scripts
+      register: k6_scripts
+      changed_when: false
+      failed_when: false
+
+    - name: Check k6 test script
+      ansible.builtin.command:
+        cmd: podman exec k6 test -f /scripts/test.js
+      register: k6_test_script
+      changed_when: false
+      failed_when: false
+
+    - name: Report k6 test script
+      ansible.builtin.debug:
+        msg: >-
+          {% if k6_test_script.rc == 0 %}
+          COMPLIANCE PASS: /scripts/test.js exists
+          {% else %}
+          COMPLIANCE FAIL: /scripts/test.js does not exist
+          {% endif %}
+
+
+   
+    # LOKI
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Loki readiness
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:3100/ready
+      register: loki_ready
+      changed_when: false
+      failed_when: false
+
+    - name: Report Loki readiness
+      ansible.builtin.debug:
+        msg: >-
+          {% if loki_ready.rc == 0 %}
+          COMPLIANCE PASS: Loki is ready
+          {% else %}
+          COMPLIANCE FAIL: Loki is not ready
+          {% endif %}
+
+
+    - name: Check Loki metrics endpoint
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:3100/metrics
+      register: loki_metrics
+      changed_when: false
+      failed_when: false
+
+    - name: Report Loki metrics
+      ansible.builtin.debug:
+        msg: >-
+          {% if loki_metrics.rc == 0 %}
+          COMPLIANCE PASS: Loki metrics endpoint is available
+          {% else %}
+          COMPLIANCE FAIL: Loki metrics endpoint unavailable
+          {% endif %}
+
+
+  
+    # ALLOY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Alloy readiness
+      ansible.builtin.command:
+        cmd: curl -fsS http://127.0.0.1:12345/-/ready
+      register: alloy_ready
+      changed_when: false
+      failed_when: false
+
+    - name: Report Alloy readiness
+      ansible.builtin.debug:
+        msg: >-
+          {% if alloy_ready.rc == 0 %}
+          COMPLIANCE PASS: Grafana Alloy is ready
+          {% else %}
+          COMPLIANCE FAIL: Grafana Alloy is not ready
+          {% endif %}
+
+
+    - name: Check Alloy configuration exists
+      ansible.builtin.command:
+        cmd: podman exec alloy test -f /etc/alloy/config.alloy
+      register: alloy_config
+      changed_when: false
+      failed_when: false
+
+    - name: Report Alloy configuration
+      ansible.builtin.debug:
+        msg: >-
+          {% if alloy_config.rc == 0 %}
+          COMPLIANCE PASS: Alloy configuration exists
+          {% else %}
+          COMPLIANCE FAIL: Alloy configuration missing
+          {% endif %}
+
+
+    
+    # LOKI ALLOY CONNECTIVITY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Check Alloy can reach Loki
+      ansible.builtin.command:
+        cmd: >
+          podman exec alloy
+          wget -qO- http://loki:3100/ready
+      register: alloy_loki_connectivity
+      changed_when: false
+      failed_when: false
+
+    - name: Report Alloy to Loki connectivity
+      ansible.builtin.debug:
+        msg: >-
+          {% if alloy_loki_connectivity.rc == 0 %}
+          COMPLIANCE PASS: Alloy can reach Loki
+          {% else %}
+          COMPLIANCE FAIL: Alloy cannot reach Loki
+          {% endif %}
+
+
+
+    # FINAL SUMMARY
+    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    - name: Display compliance summary
+      ansible.builtin.debug:
+        msg:
+          - "=============================================="
+          - "      PODMAN CONTAINER COMPLIANCE REPORT"
+          - "=============================================="
+          - "Expected containers: {{ expected_containers | length }}"
+          - "HTTPD:              checked"
+          - "HAProxy:             checked"
+          - "Caddy:               checked"
+          - "Prometheus:          checked"
+          - "Grafana:             checked"
+          - "cAdvisor:            checked"
+          - "k6:                  checked"
+          - "Loki:                checked"
+          - "Grafana Alloy:       checked"
+          - "=============================================="
+          - "Audit completed."
+          - "=============================================="

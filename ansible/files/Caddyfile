@@ -1,0 +1,9 @@
+:80 {
+    reverse_proxy haproxy-lb:8080
+}
+
+:443 {
+    tls internal
+    reverse_proxy haproxy-lb:8080
+}
+
