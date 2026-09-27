@@ -424,6 +424,9 @@ checkov -d terraform/
 The objective is to detect issues before:
 
 ```bash
+terraform init
+terraform fmt
+terraform validate
 terraform plan
 terraform apply
 ```
